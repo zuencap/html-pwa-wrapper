@@ -64,7 +64,7 @@ shareBtn.addEventListener("click", async () => {
 clearBtn.addEventListener("click", () => {
   if (confirm("Clear all saved documents?")) {
     localStorage.clear();
-    location.href = "/";
+    location.href = "./";
   }
 });
 
