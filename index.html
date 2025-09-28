@@ -47,7 +47,6 @@
         <textarea id="input" placeholder="&lt;h1&gt;Hello!&lt;/h1&gt;"></textarea>
         <div class="controls">
           <button id="saveBtn" class="btn-accent">Save & Preview</button>
-          <label class="check"><input type="checkbox" id="allowScripts"> Allow scripts (unsafe)</label>
           <label>Title <input id="docTitle" type="text" placeholder="Optional"></label>
         </div>
       </div>
@@ -57,7 +56,7 @@
       </div>
     </aside>
     <main class="stage">
-      <iframe id="viewer" allow="geolocation" sandbox="allow-forms allow-pointer-lock allow-popups allow-modals allow-same-origin"></iframe>
+      <iframe id="viewer" allow="geolocation" sandbox="allow-forms allow-pointer-lock allow-popups allow-modals allow-same-origin allow-scripts"></iframe>
       <button id="floatToggle" class="float-toggle" title="Show panel" hidden>☰</button>
     </main>
   </div>
