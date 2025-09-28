@@ -1,4 +1,5 @@
-// app.js with panel toggle
+// app.js with panel toggle (scripts always allowed)
+
 const load = (id) => localStorage.getItem("doc:" + id);
 const save = (id, html) => localStorage.setItem("doc:" + id, html);
 const setLast = (id) => localStorage.setItem("lastDocId", id);
@@ -6,7 +7,6 @@ const getLast = () => localStorage.getItem("lastDocId");
 
 const input = document.getElementById("input");
 const viewer = document.getElementById("viewer");
-const allowScripts = document.getElementById("allowScripts");
 const saveBtn = document.getElementById("saveBtn");
 const installBtn = document.getElementById("installBtn");
 const shareBtn = document.getElementById("shareBtn");
@@ -19,6 +19,7 @@ const floatToggle = document.getElementById("floatToggle");
 
 let deferredPrompt = null;
 
+// PWA install prompt
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   deferredPrompt = e;
@@ -28,11 +29,12 @@ window.addEventListener("beforeinstallprompt", (e) => {
 installBtn.addEventListener("click", async () => {
   if (!deferredPrompt) return;
   deferredPrompt.prompt();
-  const { outcome } = await deferredPrompt.userChoice;
+  await deferredPrompt.userChoice;
   deferredPrompt = null;
   installBtn.hidden = true;
 });
 
+// Save & preview
 saveBtn.addEventListener("click", () => {
   const html = input.value;
   const id = crypto.randomUUID().slice(0, 8);
@@ -46,57 +48,77 @@ saveBtn.addEventListener("click", () => {
   exportBtn.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
 });
 
+// Share link
 shareBtn.addEventListener("click", async () => {
   const url = new URL(location.href);
   const id = url.searchParams.get("doc") || getLast();
   if (!id) return alert("No document to share yet.");
   url.searchParams.set("doc", id);
   const link = url.toString();
-  try { await navigator.clipboard.writeText(link); alert("Share URL copied!"); }
-  catch { prompt("Copy this URL:", link); }
+  try {
+    await navigator.clipboard.writeText(link);
+    alert("Share URL copied!");
+  } catch {
+    prompt("Copy this URL:", link);
+  }
 });
 
+// Clear storage
 clearBtn.addEventListener("click", () => {
-  if (confirm("Clear all saved documents?")) { localStorage.clear(); location.href = "./"; }
+  if (confirm("Clear all saved documents?")) {
+    localStorage.clear();
+    location.href = "./";
+  }
 });
 
+// Render always with scripts enabled
 function render(id) {
   const html = load(id) || "<p>No content</p>";
-  const useScripts = allowScripts.checked;
-  const sandbox = "allow-forms allow-pointer-lock allow-popups allow-modals allow-same-origin" + (useScripts ? " allow-scripts" : "");
-  viewer.setAttribute("sandbox", sandbox);
   viewer.setAttribute("srcdoc", html);
   const t = localStorage.getItem("title:" + id) || "HTML → PWA Wrapper";
   document.title = t;
 }
 
+// Boot
 (function boot() {
   const url = new URL(location.href);
   const id = url.searchParams.get("doc");
-  if (id) render(id);
-  else if (url.searchParams.get("start") === "last") {
+  if (id) {
+    render(id);
+  } else if (url.searchParams.get("start") === "last") {
     const last = getLast();
     if (last) render(last);
   }
 })();
 
+// Register service worker
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("./sw.js");
 }
 
-// Panel toggling
+// === Panel toggling ===
 function setPanel(collapsed) {
   panel.classList.toggle("collapsed", collapsed);
   floatToggle.hidden = !collapsed;
   togglePanel.textContent = collapsed ? "⟩" : "⟨";
   localStorage.setItem("panelCollapsed", collapsed ? "1" : "0");
 }
-togglePanel.addEventListener("click", () => setPanel(!panel.classList.contains("collapsed")));
+
+togglePanel.addEventListener("click", () =>
+  setPanel(!panel.classList.contains("collapsed"))
+);
 floatToggle.addEventListener("click", () => setPanel(false));
+
+// Keyboard shortcut: Ctrl/Cmd + B
 window.addEventListener("keydown", (e) => {
-  if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==="b") {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
     e.preventDefault();
     setPanel(!panel.classList.contains("collapsed"));
   }
 });
-(function initPanel(){ const collapsed = localStorage.getItem("panelCollapsed")==="1"; setPanel(collapsed); })();
+
+// Restore panel state
+(function initPanel() {
+  const collapsed = localStorage.getItem("panelCollapsed") === "1";
+  setPanel(collapsed);
+})();
