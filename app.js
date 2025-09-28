@@ -1,5 +1,4 @@
-// app.js with panel toggle (scripts always allowed)
-
+// app.js — fixes panel collapse and changes Save behavior
 const load = (id) => localStorage.getItem("doc:" + id);
 const save = (id, html) => localStorage.setItem("doc:" + id, html);
 const setLast = (id) => localStorage.setItem("lastDocId", id);
@@ -16,6 +15,7 @@ const docTitle = document.getElementById("docTitle");
 const panel = document.getElementById("panel");
 const togglePanel = document.getElementById("togglePanel");
 const floatToggle = document.getElementById("floatToggle");
+const appRoot = document.getElementById("appRoot");
 
 let deferredPrompt = null;
 
@@ -34,7 +34,7 @@ installBtn.addEventListener("click", async () => {
   installBtn.hidden = true;
 });
 
-// Save & preview
+// Save & open full preview (and auto-hide panel)
 saveBtn.addEventListener("click", () => {
   const html = input.value;
   const id = crypto.randomUUID().slice(0, 8);
@@ -46,10 +46,11 @@ saveBtn.addEventListener("click", () => {
   url.searchParams.set("doc", id);
   history.replaceState({}, "", url.toString());
   exportBtn.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+  setPanel(true);
 });
 
 // Share link
-shareBtn.addEventListener("click", async () => {
+shareBtn?.addEventListener("click", async () => {
   const url = new URL(location.href);
   const id = url.searchParams.get("doc") || getLast();
   if (!id) return alert("No document to share yet.");
@@ -64,14 +65,13 @@ shareBtn.addEventListener("click", async () => {
 });
 
 // Clear storage
-clearBtn.addEventListener("click", () => {
+clearBtn?.addEventListener("click", () => {
   if (confirm("Clear all saved documents?")) {
     localStorage.clear();
     location.href = "./";
   }
 });
 
-// Render always with scripts enabled
 function render(id) {
   const html = load(id) || "<p>No content</p>";
   viewer.setAttribute("srcdoc", html);
@@ -79,7 +79,7 @@ function render(id) {
   document.title = t;
 }
 
-// Boot
+// Boot: only render if there's a doc
 (function boot() {
   const url = new URL(location.href);
   const id = url.searchParams.get("doc");
@@ -91,22 +91,20 @@ function render(id) {
   }
 })();
 
-// Register service worker
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("./sw.js");
 }
 
-// === Panel toggling ===
+// Panel toggling; also toggle grid columns on the root .app
 function setPanel(collapsed) {
   panel.classList.toggle("collapsed", collapsed);
+  appRoot.classList.toggle("panel-collapsed", collapsed);
   floatToggle.hidden = !collapsed;
   togglePanel.textContent = collapsed ? "⟩" : "⟨";
   localStorage.setItem("panelCollapsed", collapsed ? "1" : "0");
 }
 
-togglePanel.addEventListener("click", () =>
-  setPanel(!panel.classList.contains("collapsed"))
-);
+togglePanel.addEventListener("click", () => setPanel(!panel.classList.contains("collapsed")));
 floatToggle.addEventListener("click", () => setPanel(false));
 
 // Keyboard shortcut: Ctrl/Cmd + B
@@ -117,7 +115,6 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-// Restore panel state
 (function initPanel() {
   const collapsed = localStorage.getItem("panelCollapsed") === "1";
   setPanel(collapsed);

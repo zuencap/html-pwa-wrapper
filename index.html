@@ -10,6 +10,7 @@
     html, body { height: 100%; margin:0; }
     body { background: linear-gradient(120deg, #0b1220, #0b1324 50%, #0b1220); color: #e5e7eb; font-family: system-ui, sans-serif; }
     .app { display:grid; grid-template-columns:320px 1fr; height:100dvh; }
+    .app.panel-collapsed { grid-template-columns:0 1fr; }
     .panel { background:#0f172a; border-right:1px solid #1f2937; padding:12px; overflow:auto; }
     .panel.collapsed { width:0; padding:0; border-right:none; overflow:hidden; }
     .panel-header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
@@ -25,11 +26,16 @@
     .btn-accent { background: linear-gradient(180deg, #38bdf8, #0ea5e9); color:#0b1220; border-color:#38bdf8; font-weight:600; }
     .btn.danger { background: linear-gradient(180deg,#7f1d1d,#450a0a); border-color:#7f1d1d; }
     .float-toggle { position:absolute; top:12px; left:12px; z-index:5; background:#0ea5e9; color:#0b1220; border:0; border-radius:10px; padding:8px 10px; box-shadow:0 10px 30px rgba(0,0,0,.25); }
-    @media (max-width:900px){ .app{grid-template-columns:0 1fr;} .panel{position:absolute;z-index:10;width:90%;max-width:420px;height:100%;} .panel.collapsed{transform:translateX(-100%);transition:transform .2s ease;} .panel:not(.collapsed){transform:translateX(0);transition:transform .2s ease;} }
+    @media (max-width:900px){
+      .app{ grid-template-columns:0 1fr; }
+      .panel{ position:absolute; z-index:10; width:90%; max-width:420px; height:100%; }
+      .app.panel-collapsed .panel{ transform: translateX(-100%); transition: transform .2s ease; }
+      .app:not(.panel-collapsed) .panel{ transform: translateX(0); transition: transform .2s ease; }
+    }
   </style>
 </head>
 <body>
-  <div class="app">
+  <div id="appRoot" class="app">
     <aside id="panel" class="panel">
       <div class="panel-header">
         <div class="title"><img alt="" src="./icons/192.png" width="22" height="22" style="border-radius:6px;"/><strong>HTML → PWA Wrapper</strong></div>
@@ -46,7 +52,7 @@
         <h3>Paste HTML</h3>
         <textarea id="input" placeholder="&lt;h1&gt;Hello!&lt;/h1&gt;"></textarea>
         <div class="controls">
-          <button id="saveBtn" class="btn-accent">Save & Preview</button>
+          <button id="saveBtn" class="btn-accent">Save</button>
           <label>Title <input id="docTitle" type="text" placeholder="Optional"></label>
         </div>
       </div>
