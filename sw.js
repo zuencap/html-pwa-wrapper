@@ -1,5 +1,5 @@
 // sw.js - simple App Shell cache-first for static assets
-const CACHE = "html-wrapper-v1";
+const CACHE = "html-wrapper-v2";
 const ASSETS = [
   "./",
   "./index.html",
