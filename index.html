@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>HTML → Installable PWA (Wrapper)</title>
   <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./favicon.ico">
   <meta name="theme-color" content="#0ea5e9">
   <style>
     html, body { height: 100%; margin:0; }
@@ -53,6 +54,7 @@
         <div class="controls">
           <button id="installBtn" class="btn-accent" hidden>Install</button>
           <a class="btn" href="#" id="exportBtn" download="content.html">Export</a>
+          <!-- Ensure this exists -->
           <button id="shareEmbedBtn" class="btn">Share link</button>
         </div>
         <p class="tiny">Share link encodes the current document into the URL. Very large pages may exceed URL limits.</p>

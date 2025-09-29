@@ -1,6 +1,6 @@
-// sw.js — cache bump for gzip sharing + autosave
-const CACHE = "html-wrapper-v6";
-const ASSETS = ["./","./index.html","./app.js","./manifest.webmanifest","./icons/192.png","./icons/512.png"];
+// sw.js — cache bump v7 for share button + favicon
+const CACHE = "html-wrapper-v7";
+const ASSETS = ["./","./index.html","./app.js","./manifest.webmanifest","./icons/192.png","./icons/512.png","./favicon.ico"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS))); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))))); });
 self.addEventListener("fetch", e => {
