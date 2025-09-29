@@ -1,28 +1,6 @@
-// app.js — full logic (gzip share + autosave) with guard + version display
-const APP_VERSION = "v8";
+// app.js — v8 + verbose debug logs (no guard)
 
-// Guard: ensure Share link button exists and is wired
-(function(){
-  const btn = document.getElementById("shareEmbedBtn");
-  if (!btn) {
-    console.warn("[Wrapper] shareEmbedBtn not found in DOM. Make sure index.html has <button id=\"shareEmbedBtn\">.");
-    // Create a placeholder to avoid 'nothing happens' experience
-    const exp = document.getElementById("exportBtn");
-    if (exp && exp.parentElement) {
-      const ph = document.createElement("button");
-      ph.id = "shareEmbedBtn";
-      ph.className = "btn";
-      ph.textContent = "Share link";
-      exp.parentElement.appendChild(ph);
-    }
-  }
-})();
-
-// Show version in footer
-(function(){
-  const el = document.getElementById("appVersion");
-  if (el) el.textContent = "Version " + APP_VERSION;
-})();
+const APP_VERSION = "v8+logs";
 
 /* ---------- Storage helpers ---------- */
 const K_INDEX = "docsIndex"; // array of {id,title,ts}
@@ -50,8 +28,10 @@ const docList     = document.getElementById("docList");
 const docCount    = document.getElementById("docCount");
 const shareEmbedBtn = document.getElementById("shareEmbedBtn");
 
-let currentId = null;
-let deferredPrompt = null;
+console.log("[Wrapper] Booting app.js", { APP_VERSION });
+console.log("[Wrapper] Element presence", {
+  input: !!input, viewer: !!viewer, saveBtn: !!saveBtn, shareEmbedBtn: !!shareEmbedBtn
+});
 
 /* ---------- Small utils ---------- */
 function fmtTime(iso) { try { return new Date(iso).toLocaleString(); } catch { return iso; } }
@@ -76,8 +56,10 @@ function fromBase64Url(b64url){
   return bytes;
 }
 async function gzipCompressString(str){
-  if (typeof CompressionStream === "undefined") {
-    // Fallback: no compression, just UTF-8 bytes
+  const hasCS = typeof CompressionStream !== "undefined";
+  console.log("[Share] CompressionStream available:", hasCS);
+  if (!hasCS) {
+    console.warn("[Share] CompressionStream not supported — falling back to raw UTF-8 (longer URLs).");
     return new TextEncoder().encode(str);
   }
   const stream = new CompressionStream("gzip");
@@ -89,8 +71,10 @@ async function gzipCompressString(str){
   return new Uint8Array(buf);
 }
 async function gzipDecompressToString(bytes){
-  if (typeof DecompressionStream === "undefined") {
-    // Fallback: assume bytes are plain UTF-8 (no compression)
+  const hasDS = typeof DecompressionStream !== "undefined";
+  console.log("[OpenShare] DecompressionStream available:", hasDS);
+  if (!hasDS) {
+    console.warn("[OpenShare] DecompressionStream not supported — assuming raw UTF-8.");
     return new TextDecoder().decode(bytes);
   }
   const blob = new Blob([bytes], {type:"application/gzip"});
@@ -100,7 +84,14 @@ async function gzipDecompressToString(bytes){
   return text;
 }
 
+/* ---------- Version label ---------- */
+(function(){
+  const el = document.getElementById("appVersion");
+  if (el) el.textContent = "Version " + APP_VERSION;
+})();
+
 /* ---------- PWA install prompt ---------- */
+let deferredPrompt = null;
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   deferredPrompt = e;
@@ -139,31 +130,81 @@ saveBtn.addEventListener("click", () => {
 
   exportBtn.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
 
-  setPanel(true); // hide sidebar
+  setPanel(true);
 });
 
-/* ---------- Share link (gzip-compressed, Base64-URL) ---------- */
-shareEmbedBtn?.addEventListener("click", async () => {
-  const id   = currentId || getLast();
-  const html = id ? load(id) : input.value;
-  if (!html) return alert("Nothing to share yet.");
-  const idx  = getIndex();
-  const meta = id ? (idx.find(d => d.id===id) || {title: docTitle.value || "Shared"})
-                  : {title: docTitle.value || "Shared"};
-  const payload = JSON.stringify({ t: meta.title, h: html });
-  const bytes   = await gzipCompressString(payload);
-  const encoded = toBase64Url(bytes);
+/* ---------- Share link (gzip-compressed, Base64-URL) + DEEP LOGGING ---------- */
+shareEmbedBtn.addEventListener("click", async () => {
+  console.group("[Share] Click handler start");
+  try {
+    const id   = currentId || getLast();
+    const source = id ? "stored" : "editor";
+    const html = id ? load(id) : input.value;
+    const titleGuess = id
+      ? (getIndex().find(d => d.id===id)?.title || "(untitled)")
+      : (docTitle.value || "(untitled)");
+    console.log("[Share] Source:", source, "id:", id, "title:", titleGuess);
+    console.log("[Share] HTML length:", html ? html.length : 0);
 
-  const url = new URL(location.href);
-  url.searchParams.set("s", encoded);
-  url.searchParams.delete("doc");
-  const link = url.toString();
+    if (!html) {
+      console.warn("[Share] Nothing to share (empty HTML).");
+      alert("Nothing to share.");
+      return;
+    }
 
-  try { await navigator.clipboard.writeText(link); alert("Share link copied!"); }
-  catch { prompt("Copy this URL:", link); }
+    const payload = JSON.stringify({ t: titleGuess, h: html });
+    console.log("[Share] Payload length (chars):", payload.length);
+
+    const bytes   = await gzipCompressString(payload);
+    console.log("[Share] Compressed bytes:", bytes.length, " first bytes:", Array.from(bytes.slice(0,8)));
+
+    const encoded = toBase64Url(bytes);
+    console.log("[Share] Encoded length (chars):", encoded.length);
+
+    const url = new URL(location.href);
+    url.searchParams.set("s", encoded);
+    url.searchParams.delete("doc");
+    const link = url.toString();
+    console.log("[Share] Final URL length:", link.length);
+
+    // Try Web Share API first if available
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: titleGuess, url: link });
+        console.log("[Share] navigator.share succeeded");
+        console.groupEnd();
+        return;
+      } catch (e) {
+        console.warn("[Share] navigator.share failed, falling back to clipboard:", e);
+      }
+    }
+
+    // Clipboard
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(link);
+      console.log("[Share] Clipboard write succeeded");
+      copied = true;
+      alert("Share link copied!");
+    } catch (e) {
+      console.warn("[Share] Clipboard write failed, will show prompt fallback:", e);
+    }
+
+    // Always show prompt as a last resort so the user *sees something happen*
+    if (!copied) {
+      console.log("[Share] Showing prompt fallback");
+      prompt("Copy this URL:", link);
+    }
+  } catch (err) {
+    console.error("[Share] Fatal error in click handler:", err);
+    alert("Sharing failed. See console for details.");
+  } finally {
+    console.groupEnd();
+  }
 });
 
 /* ---------- Render current doc ---------- */
+let currentId = null;
 function render(id) {
   currentId = id;
   const html = load(id) || "<p>No content</p>";
@@ -243,18 +284,20 @@ async function handleSharedOpen() {
   const url = new URL(location.href);
   const s = url.searchParams.get("s");
   if (!s) return false;
+  console.group("[OpenShare] Handling ?s param");
   try {
+    console.log("[OpenShare] Encoded length:", s.length);
     const bytes = fromBase64Url(s);
+    console.log("[OpenShare] Bytes length:", bytes.length, "first bytes:", Array.from(bytes.slice(0,8)));
     const json  = await gzipDecompressToString(bytes);
+    console.log("[OpenShare] JSON length:", json.length);
     const obj   = JSON.parse(json);
     const html  = obj.h || "";
     const title = (obj.t || "Shared").toString();
 
-    // Render immediately
     viewer.setAttribute("srcdoc", html);
     document.title = title + " • Shared preview";
 
-    // Auto-save: always create a new doc and focus it
     const id = crypto.randomUUID().slice(0,8);
     const ts = new Date().toISOString();
     save(id, html);
@@ -264,25 +307,26 @@ async function handleSharedOpen() {
     idx.unshift({ id, title, ts });
     setIndex(idx);
     renderList();
+    exportBtn.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
 
-    // Replace URL with ?doc=ID (remove ?s=) to shorten and persist
     url.searchParams.delete("s");
     url.searchParams.set("doc", id);
     history.replaceState({}, "", url.toString());
 
-    // Prepare export and hide panel
-    exportBtn.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
     setPanel(true);
+    console.groupEnd();
     return true;
   } catch (e) {
-    console.error("Share open failed:", e);
-    alert("Couldn't open shared content.");
+    console.error("[OpenShare] Failed:", e);
+    alert("Couldn't open shared content. See console for details.");
+    console.groupEnd();
     return false;
   }
 }
 
 /* ---------- Boot ---------- */
 (function boot() {
+  console.log("[Wrapper] Boot init");
   renderList();
   handleSharedOpen().then((handled)=>{
     if (handled) return;
@@ -299,7 +343,10 @@ async function handleSharedOpen() {
 
 /* ---------- SW ---------- */
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js");
+  navigator.serviceWorker.register("./sw.js").then(
+    () => console.log("[Wrapper] SW registered"),
+    (e) => console.warn("[Wrapper] SW register failed:", e)
+  );
 }
 
 /* ---------- Panel toggling (grid + element) ---------- */
