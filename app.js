@@ -1,14 +1,17 @@
-// app.js — doc list + URL-safe Base64 share (no external libs)
+// app.js — multi-doc list + gzip-compressed share (?s=) + auto-save on open
+// Uses Web Streams CompressionStream/DecompressionStream when available, with Base64-URL framing.
 
+/* ---------- Storage helpers ---------- */
 const K_INDEX = "docsIndex"; // array of {id,title,ts}
-const load   = (id) => localStorage.getItem("doc:" + id);
-const save   = (id, html) => localStorage.setItem("doc:" + id, html);
-const del    = (id) => localStorage.removeItem("doc:" + id);
-const setLast= (id) => localStorage.setItem("lastDocId", id);
-const getLast= () => localStorage.getItem("lastDocId");
+const load    = (id) => localStorage.getItem("doc:" + id);
+const save    = (id, html) => localStorage.setItem("doc:" + id, html);
+const del     = (id) => localStorage.removeItem("doc:" + id);
+const setLast = (id) => localStorage.setItem("lastDocId", id);
+const getLast = () => localStorage.getItem("lastDocId");
 const getIndex = () => { try { return JSON.parse(localStorage.getItem(K_INDEX)) || []; } catch { return []; } };
 const setIndex = (arr) => localStorage.setItem(K_INDEX, JSON.stringify(arr));
 
+/* ---------- Elements ---------- */
 const input       = document.getElementById("input");
 const viewer      = document.getElementById("viewer");
 const saveBtn     = document.getElementById("saveBtn");
@@ -26,6 +29,53 @@ const shareEmbedBtn = document.getElementById("shareEmbedBtn");
 
 let currentId = null;
 let deferredPrompt = null;
+
+/* ---------- Small utils ---------- */
+function fmtTime(iso) { try { return new Date(iso).toLocaleString(); } catch { return iso; } }
+function escapeHtml(s){
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function toBase64Url(bytes){
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i=0; i<bytes.length; i+=CHUNK){
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i+CHUNK));
+  }
+  const b64 = btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/,"");
+  return b64;
+}
+function fromBase64Url(b64url){
+  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
+  const bin = atob(b64 + pad);
+  const bytes = new Uint8Array(bin.length);
+  for (let i=0; i<bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+async function gzipCompressString(str){
+  if (typeof CompressionStream === "undefined") {
+    // Fallback: no compression, just UTF-8 bytes
+    return new TextEncoder().encode(str);
+  }
+  const stream = new CompressionStream("gzip");
+  const writer = stream.writable.getWriter();
+  await writer.write(new TextEncoder().encode(str));
+  await writer.close();
+  const blob = await new Response(stream.readable).blob();
+  const buf = await blob.arrayBuffer();
+  return new Uint8Array(buf);
+}
+async function gzipDecompressToString(bytes){
+  if (typeof DecompressionStream === "undefined") {
+    // Fallback: assume bytes are plain UTF-8 (no compression)
+    return new TextDecoder().decode(bytes);
+  }
+  const blob = new Blob([bytes], {type:"application/gzip"});
+  const ds = new DecompressionStream("gzip");
+  const decompressed = blob.stream().pipeThrough(ds);
+  const text = await new Response(decompressed).text();
+  return text;
+}
 
 /* ---------- PWA install prompt ---------- */
 window.addEventListener("beforeinstallprompt", (e) => {
@@ -69,16 +119,7 @@ saveBtn.addEventListener("click", () => {
   setPanel(true); // hide sidebar
 });
 
-/* ---------- Share link (URL-safe Base64 of {t,h}) ---------- */
-function b64urlEncode(str) {
-  const b64 = btoa(unescape(encodeURIComponent(str)));
-  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/,"");
-}
-function b64urlDecode(str) {
-  const b64 = str.replace(/-/g, "+").replace(/_/g, "/");
-  const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
-  return decodeURIComponent(escape(atob(b64 + pad)));
-}
+/* ---------- Share link (gzip-compressed, Base64-URL) ---------- */
 shareEmbedBtn?.addEventListener("click", async () => {
   const id   = currentId || getLast();
   const html = id ? load(id) : input.value;
@@ -87,7 +128,8 @@ shareEmbedBtn?.addEventListener("click", async () => {
   const meta = id ? (idx.find(d => d.id===id) || {title: docTitle.value || "Shared"})
                   : {title: docTitle.value || "Shared"};
   const payload = JSON.stringify({ t: meta.title, h: html });
-  const encoded = b64urlEncode(payload);
+  const bytes   = await gzipCompressString(payload);
+  const encoded = toBase64Url(bytes);
 
   const url = new URL(location.href);
   url.searchParams.set("s", encoded);
@@ -110,12 +152,6 @@ function render(id) {
 }
 
 /* ---------- Doc list ---------- */
-function fmtTime(iso) { try { return new Date(iso).toLocaleString(); } catch { return iso; } }
-function escapeHtml(s){
-  return s.replace(/[&<>"']/g, c => ({
-    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-  }[c]));
-}
 function renderList() {
   const idx = getIndex();
   docCount.textContent = idx.length ? `${idx.length} saved` : "No docs yet";
@@ -179,22 +215,44 @@ clearBtn?.addEventListener("click", () => {
   }
 });
 
-/* ---------- Open from share (?s=...) ---------- */
-function tryOpenShared() {
+/* ---------- Open from share (?s=...) — render, auto-save, update URL ---------- */
+async function handleSharedOpen() {
   const url = new URL(location.href);
   const s = url.searchParams.get("s");
   if (!s) return false;
   try {
-    const obj = JSON.parse(b64urlDecode(s));
+    const bytes = fromBase64Url(s);
+    const json  = await gzipDecompressToString(bytes);
+    const obj   = JSON.parse(json);
     const html  = obj.h || "";
-    const title = obj.t || "Shared";
-    input.value = html;
-    docTitle.value = title;
+    const title = (obj.t || "Shared").toString();
+
+    // Render immediately
     viewer.setAttribute("srcdoc", html);
     document.title = title + " • Shared preview";
+
+    // Auto-save: always create a new doc and focus it
+    const id = crypto.randomUUID().slice(0,8);
+    const ts = new Date().toISOString();
+    save(id, html);
+    setLast(id);
+    currentId = id;
+    const idx = getIndex();
+    idx.unshift({ id, title, ts });
+    setIndex(idx);
+    renderList();
+
+    // Replace URL with ?doc=ID (remove ?s=) to shorten and persist
+    url.searchParams.delete("s");
+    url.searchParams.set("doc", id);
+    history.replaceState({}, "", url.toString());
+
+    // Prepare export and hide panel
+    exportBtn.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
     setPanel(true);
     return true;
-  } catch {
+  } catch (e) {
+    console.error("Share open failed:", e);
     alert("Couldn't open shared content.");
     return false;
   }
@@ -203,15 +261,17 @@ function tryOpenShared() {
 /* ---------- Boot ---------- */
 (function boot() {
   renderList();
-  if (tryOpenShared()) return;
-  const url = new URL(location.href);
-  const id = url.searchParams.get("doc");
-  if (id && load(id)) {
-    render(id);
-  } else if (url.searchParams.get("start") === "last") {
-    const last = getLast();
-    if (last && load(last)) render(last);
-  }
+  handleSharedOpen().then((handled)=>{
+    if (handled) return;
+    const url = new URL(location.href);
+    const id = url.searchParams.get("doc");
+    if (id && load(id)) {
+      render(id);
+    } else if (url.searchParams.get("start") === "last") {
+      const last = getLast();
+      if (last && load(last)) render(last);
+    }
+  });
 })();
 
 /* ---------- SW ---------- */
