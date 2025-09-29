@@ -1,4 +1,6 @@
-const CACHE = 'html-wrapper-v9';
+importScripts('./config.js');
+
+const CACHE = `html-wrapper-${APP_VERSION}`;
 const ASSETS = [
   './',
   './index.html',

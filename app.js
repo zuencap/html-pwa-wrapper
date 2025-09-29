@@ -1,4 +1,4 @@
-const APP_VERSION = 'v9';
+import { APP_VERSION } from './config.js';
 
 /* ---------- Storage helpers ---------- */
 const K_INDEX = 'docsIndex'; // array of {id,title,ts}
