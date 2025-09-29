@@ -73,9 +73,11 @@ function fromBase64Url(b64url) {
 async function gzipCompressString(str, timeoutMs = 1500) {
   const hasCS = typeof CompressionStream !== 'undefined';
   console.log('[Share] CompressionStream available:', hasCS);
+  const encodedString = new TextEncoder().encode(str);
+  console.log('[Share] Original string byte length:', encodedString.length);
   if (!hasCS) {
     console.warn('[Share] No CompressionStream; using raw UTF-8.');
-    return new TextEncoder().encode(str);
+    return encodedString;
   }
   const start = performance.now();
   let timedOut = false;
@@ -88,14 +90,17 @@ async function gzipCompressString(str, timeoutMs = 1500) {
 
   const work = (async () => {
     console.log('[Share] compress: start');
-    const stream = new CompressionStream('gzip');
-    const writer = stream.writable.getWriter();
-    await writer.write(new TextEncoder().encode(str));
-    await writer.close();
-    const blob = await new Response(stream.readable).blob();
-    const buf = await blob.arrayBuffer();
-    console.log('[Share] compress: done in', Math.round(performance.now() - start), 'ms');
-    return new Uint8Array(buf);
+    try {
+      const readable = new Blob([encodedString]).stream();
+      const cs = new CompressionStream('gzip');
+      const compressedStream = readable.pipeThrough(cs);
+      const buf = await new Response(compressedStream).arrayBuffer();
+      console.log('[Share] compress: done in', Math.round(performance.now() - start), 'ms');
+      return new Uint8Array(buf);
+    } catch (e) {
+      console.error('[Share] Compression error:', e);
+      throw e;
+    }
   })();
 
   try {
@@ -103,7 +108,7 @@ async function gzipCompressString(str, timeoutMs = 1500) {
   } catch (e) {
     console.warn('[Share] compress failed or timed out:', e.message);
     if (timedOut) console.warn('[Share] falling back to raw UTF-8 due to timeout.');
-    return new TextEncoder().encode(str);
+    return encodedString;
   }
 }
 
