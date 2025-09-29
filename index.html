@@ -9,10 +9,10 @@
   <meta name="theme-color" content="#0ea5e9">
   <style>
     html, body { height: 100%; margin:0; }
-    body { background: linear-gradient(120deg, #0b1220, #0b1324 50%, #0b1220); color: #e5e7eb; font-family: system-ui, sans-serif; }
+    body { background: linear-gradient(120deg, #0b1220, #0b1324 50%, #0b1220); color: #e5e7eb; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
     .app { display:grid; grid-template-columns:320px 1fr; height:100dvh; }
     .app.panel-collapsed { grid-template-columns:0 1fr; }
-    .panel { background:#0f172a; border-right:1px solid #1f2937; padding:12px; overflow:auto; }
+    .panel { background:#0f172a; border-right:1px solid #1f2937; padding:12px; overflow:auto; display:flex; flex-direction:column; }
     .panel.collapsed { width:0; padding:0; border-right:none; overflow:hidden; }
     .panel-header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
     .title { display:flex; align-items:center; gap:8px; }
@@ -34,6 +34,7 @@
     .doc-time { font-size:.8rem; color:#94a3b8; }
     .doc-actions { display:flex; gap:6px; }
     .tiny { font-size:.8rem; opacity:.85; }
+    .panel-footer { margin-top:auto; padding-top:8px; border-top:1px solid #1f2937; color:#94a3b8; display:flex; justify-content:space-between; align-items:center; }
     @media (max-width:900px){
       .app{ grid-template-columns:0 1fr; }
       .panel{ position:absolute; z-index:10; width:90%; max-width:420px; height:100%; }
@@ -54,7 +55,6 @@
         <div class="controls">
           <button id="installBtn" class="btn-accent" hidden>Install</button>
           <a class="btn" href="#" id="exportBtn" download="content.html">Export</a>
-          <!-- Ensure this exists -->
           <button id="shareEmbedBtn" class="btn">Share link</button>
         </div>
         <p class="tiny">Share link encodes the current document into the URL. Very large pages may exceed URL limits.</p>
@@ -77,9 +77,9 @@
         <ul id="docList"></ul>
       </div>
 
-      <div class="panel-section">
-        <button id="clearBtn" class="btn danger">Reset all</button>
-        <p class="tiny">Tip: Ctrl/Cmd + B to toggle panel.</p>
+      <div class="panel-footer">
+        <small id="appVersion" class="tiny">Version</small>
+        <a href="https://github.com/zuencap/html-pwa-wrapper" target="_blank" rel="noopener" class="tiny" style="color:#9ca3af;">Repo</a>
       </div>
     </aside>
 
