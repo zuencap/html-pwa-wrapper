@@ -1,4 +1,4 @@
-importScripts('./config.js');
+import { APP_VERSION } from './config.js';
 
 const CACHE = `html-wrapper-${APP_VERSION}`;
 const ASSETS = [

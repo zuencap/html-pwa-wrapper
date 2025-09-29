@@ -387,7 +387,7 @@ async function handleSharedOpen() {
 
 /* ---------- SW ---------- */
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').then(
+  navigator.serviceWorker.register('./sw.js', { type: 'module' }).then(
     () => console.log('[Wrapper] SW registered'),
     (e) => console.warn('[Wrapper] SW register failed:', e)
   );
