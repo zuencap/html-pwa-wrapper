@@ -1,6 +1,6 @@
-// app.js — v8 + verbose debug logs (no guard)
+// app.js — v8+logs+timeout-fallback on compression, clipboard-first sharing
 
-const APP_VERSION = "v8+logs";
+const APP_VERSION = "v8.1-debug";
 
 /* ---------- Storage helpers ---------- */
 const K_INDEX = "docsIndex"; // array of {id,title,ts}
@@ -33,7 +33,7 @@ console.log("[Wrapper] Element presence", {
   input: !!input, viewer: !!viewer, saveBtn: !!saveBtn, shareEmbedBtn: !!shareEmbedBtn
 });
 
-/* ---------- Small utils ---------- */
+/* ---------- Utils ---------- */
 function fmtTime(iso) { try { return new Date(iso).toLocaleString(); } catch { return iso; } }
 function escapeHtml(s){
   return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -55,32 +55,53 @@ function fromBase64Url(b64url){
   for (let i=0; i<bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return bytes;
 }
-async function gzipCompressString(str){
+
+// Compression with timeout + fallback
+async function gzipCompressString(str, timeoutMs=1500){
   const hasCS = typeof CompressionStream !== "undefined";
   console.log("[Share] CompressionStream available:", hasCS);
   if (!hasCS) {
-    console.warn("[Share] CompressionStream not supported — falling back to raw UTF-8 (longer URLs).");
+    console.warn("[Share] No CompressionStream; using raw UTF-8.");
     return new TextEncoder().encode(str);
   }
-  const stream = new CompressionStream("gzip");
-  const writer = stream.writable.getWriter();
-  await writer.write(new TextEncoder().encode(str));
-  await writer.close();
-  const blob = await new Response(stream.readable).blob();
-  const buf = await blob.arrayBuffer();
-  return new Uint8Array(buf);
+  const start = performance.now();
+  let timedOut = false;
+  const timeout = new Promise((_, rej) => setTimeout(() => { timedOut = true; rej(new Error("compress timeout")); }, timeoutMs));
+
+  const work = (async () => {
+    console.log("[Share] compress: start");
+    const stream = new CompressionStream("gzip");
+    const writer = stream.writable.getWriter();
+    await writer.write(new TextEncoder().encode(str));
+    await writer.close();
+    const blob = await new Response(stream.readable).blob();
+    const buf = await blob.arrayBuffer();
+    console.log("[Share] compress: done in", Math.round(performance.now()-start), "ms");
+    return new Uint8Array(buf);
+  })();
+
+  try {
+    return await Promise.race([work, timeout]);
+  } catch (e) {
+    console.warn("[Share] compress failed or timed out:", e.message);
+    if (timedOut) console.warn("[Share] falling back to raw UTF-8 due to timeout.");
+    return new TextEncoder().encode(str);
+  }
 }
+
 async function gzipDecompressToString(bytes){
   const hasDS = typeof DecompressionStream !== "undefined";
   console.log("[OpenShare] DecompressionStream available:", hasDS);
   if (!hasDS) {
-    console.warn("[OpenShare] DecompressionStream not supported — assuming raw UTF-8.");
+    console.warn("[OpenShare] No DecompressionStream; assuming raw UTF-8.");
     return new TextDecoder().decode(bytes);
   }
+  console.log("[OpenShare] decompress: start");
   const blob = new Blob([bytes], {type:"application/gzip"});
   const ds = new DecompressionStream("gzip");
   const decompressed = blob.stream().pipeThrough(ds);
   const text = await new Response(decompressed).text();
+  console.log("[OpenShare] decompress: done");
   return text;
 }
 
@@ -105,7 +126,7 @@ installBtn?.addEventListener("click", async () => {
   installBtn.hidden = true;
 });
 
-/* ---------- Save → new doc, render, list, auto-hide panel ---------- */
+/* ---------- Save ---------- */
 saveBtn.addEventListener("click", () => {
   const html  = input.value;
   const id    = crypto.randomUUID().slice(0, 8);
@@ -133,7 +154,7 @@ saveBtn.addEventListener("click", () => {
   setPanel(true);
 });
 
-/* ---------- Share link (gzip-compressed, Base64-URL) + DEEP LOGGING ---------- */
+/* ---------- Share (clipboard-first, always shows something) ---------- */
 shareEmbedBtn.addEventListener("click", async () => {
   console.group("[Share] Click handler start");
   try {
@@ -156,41 +177,30 @@ shareEmbedBtn.addEventListener("click", async () => {
     console.log("[Share] Payload length (chars):", payload.length);
 
     const bytes   = await gzipCompressString(payload);
-    console.log("[Share] Compressed bytes:", bytes.length, " first bytes:", Array.from(bytes.slice(0,8)));
+    console.log("[Share] Compressed bytes:", bytes.length, "first bytes:", Array.from(bytes.slice(0,8)));
 
     const encoded = toBase64Url(bytes);
-    console.log("[Share] Encoded length (chars):", encoded.length);
+    console.log("[Share] Encoded length:", encoded.length);
 
     const url = new URL(location.href);
     url.searchParams.set("s", encoded);
     url.searchParams.delete("doc");
     const link = url.toString();
     console.log("[Share] Final URL length:", link.length);
+    console.log("[Share] URL preview (first 120):", link.slice(0,120) + (link.length>120?"…":""));
 
-    // Try Web Share API first if available
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: titleGuess, url: link });
-        console.log("[Share] navigator.share succeeded");
-        console.groupEnd();
-        return;
-      } catch (e) {
-        console.warn("[Share] navigator.share failed, falling back to clipboard:", e);
-      }
-    }
-
-    // Clipboard
+    // Clipboard path first, always yields visible result
     let copied = false;
     try {
       await navigator.clipboard.writeText(link);
       console.log("[Share] Clipboard write succeeded");
       copied = true;
-      alert("Share link copied!");
+      alert("Share link copied to clipboard!");
     } catch (e) {
-      console.warn("[Share] Clipboard write failed, will show prompt fallback:", e);
+      console.warn("[Share] Clipboard write failed:", e);
     }
 
-    // Always show prompt as a last resort so the user *sees something happen*
+    // Always show prompt as a last resort so the user sees something
     if (!copied) {
       console.log("[Share] Showing prompt fallback");
       prompt("Copy this URL:", link);
@@ -279,7 +289,7 @@ clearBtn?.addEventListener("click", () => {
   }
 });
 
-/* ---------- Open from share (?s=...) — render, auto-save, update URL ---------- */
+/* ---------- Open from share (?s=...) ---------- */
 async function handleSharedOpen() {
   const url = new URL(location.href);
   const s = url.searchParams.get("s");
@@ -349,7 +359,7 @@ if ("serviceWorker" in navigator) {
   );
 }
 
-/* ---------- Panel toggling (grid + element) ---------- */
+/* ---------- Panel toggling ---------- */
 function setPanel(collapsed) {
   panel.classList.toggle("collapsed", collapsed);
   appRoot.classList.toggle("panel-collapsed", collapsed);
