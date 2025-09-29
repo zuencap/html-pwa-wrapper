@@ -338,15 +338,19 @@ async function handleSharedOpen() {
 (function boot() {
   console.log("[Wrapper] Boot init");
   renderList();
-  handleSharedOpen().then((handled)=>{
+  handleSharedOpen().then((handled) => {
     if (handled) return;
     const url = new URL(location.href);
     const id = url.searchParams.get("doc");
     if (id && load(id)) {
       render(id);
-    } else if (url.searchParams.get("start") === "last") {
+    } else {
       const last = getLast();
-      if (last && load(last)) render(last);
+      if (last && load(last)) {
+        render(last);
+      } else {
+        console.log("[Wrapper] No last document found.");
+      }
     }
   });
 })();
